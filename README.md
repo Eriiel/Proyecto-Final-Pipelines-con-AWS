@@ -196,4 +196,5 @@ Con todo encendido, el gasto es del orden de **1 USD al día** (ALB, 2 tareas Fa
   - `03-pipeline-1.png` — Pipeline 1 (Terraform)
   - `04-pipeline-2.png` — Pipeline 2 (build y ECR)
   - `05-pipeline-3.png` — Pipeline 3 (deploy y smoke test)
-  - `06-aprobacion.png` — aprobación manual del environment `infraestructura`
+  - `06-aprobacion.png` — job "Aplicar" del Pipeline 1 tras la aprobación manual del environment `infraestructura`
+  - `07-ecr.png` — repositorios en Amazon ECR (ID de cuenta oculto)
