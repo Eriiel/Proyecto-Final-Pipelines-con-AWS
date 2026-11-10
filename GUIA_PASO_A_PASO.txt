@@ -319,6 +319,22 @@ SOLUCIÓN: - En terraform/bootstrap/terraform.tfvars, github_repo debe
             terraform/bootstrap.
           - Si renombraste o hiciste fork del repo, también hay que
             actualizarlo.
+CAUSA 2: El nombre está bien, pero el repositorio usa el "sujeto
+         inmutable" de GitHub (repos nuevos). El token OIDC ya no dice
+         "repo:usuario/repo:..." sino que agrega los IDs numéricos:
+         "repo:usuario@ID_USUARIO/repo@ID_REPO:...", y no coincide con
+         lo que espera el rol.
+SOLUCIÓN: - Comprueba el formato con (GitHub CLI):
+              gh api repos/USUARIO/REPO/actions/oidc/customization/sub
+            Si responde "use_immutable_subject": true, copia el valor
+            de "sub_claim_prefix" quitándole el "repo:" del inicio.
+          - Ponlo en terraform/bootstrap/terraform.tfvars, por ejemplo:
+              github_repo = "usuario@ID_USUARIO/repo@ID_REPO"
+          - Ejecuta "terraform plan" en terraform/bootstrap: debe salir
+            solo "1 to change" (la política de confianza del rol). Luego
+            "terraform apply" y vuelve a ejecutar el pipeline.
+          - Estos IDs no son secretos y no cambian aunque renombres el
+            repo; por eso este formato es más seguro.
 
 ERROR: "Credentials could not be loaded" / "Input required and not
        supplied: aws-region" / role-to-assume vacío
