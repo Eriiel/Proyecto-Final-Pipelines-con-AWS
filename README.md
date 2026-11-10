@@ -167,8 +167,33 @@ Con todo encendido, el gasto es del orden de **1 USD al día** (ALB, 2 tareas Fa
 1. Actions → Pipeline 1 → Run workflow → **`destroy`** → aprobar.
 2. En tu PC, para borrar también el bootstrap: vacía el bucket de estado (tiene versionado, así que hay que borrar todas las versiones desde la consola de S3) y luego ejecuta `cd terraform/bootstrap && terraform destroy`.
 
+## Equipo y roles en la demo
+
+| Integrante | Parte que presenta |
+|---|---|
+| Gonzalo Hooker | Arquitectura y Pipeline 1 (Terraform) |
+| María Madrid | Pipeline 2 y Amazon ECR |
+| Angel Márquez | Pipeline 3 y la aplicación |
+| Eriol Tuñon | Credenciales (OIDC) y manejo de errores |
+
 ## Evidencia de la demo
 
-- Video o enlace: _pendiente_
-- URL usada en la demo: _pendiente_
-- Capturas: _pendiente_
+- Formato: presentación en vivo ante el docente (sin video).
+- URL usada en la demo: http://triple-pipeline-alb-1857610065.us-east-1.elb.amazonaws.com
+  (solo HTTP: escribir `http://` completo; algunos navegadores, como Brave, fuerzan HTTPS y no cargan).
+- Ejecuciones en GitHub Actions:
+  - [Pipeline 1 — `apply` con aprobación manual](https://github.com/Eriiel/Proyecto-Final-Pipelines-con-AWS/actions/runs/42762640520)
+  - [Pipeline 2 — build y publicación en ECR (primer despliegue)](https://github.com/Eriiel/Proyecto-Final-Pipelines-con-AWS/actions/runs/42763349519)
+  - [Pipeline 3 — despliegue en ECS (primer despliegue)](https://github.com/Eriiel/Proyecto-Final-Pipelines-con-AWS/actions/runs/42763425797)
+  - Cambio en vivo (`push` del subtítulo): [Pipeline 2](https://github.com/Eriiel/Proyecto-Final-Pipelines-con-AWS/actions/runs/42766072099) → [Pipeline 3](https://github.com/Eriiel/Proyecto-Final-Pipelines-con-AWS/actions/runs/42766145283)
+  - [Rollback manual al commit anterior (Pipeline 3 con `image_tag`)](https://github.com/Eriiel/Proyecto-Final-Pipelines-con-AWS/actions/runs/42766828213)
+- Tiempos medidos en el ensayo:
+  - Cambio en vivo, del `git push` a la app actualizada: **6 min 40 s** (Pipeline 2 ≈ 40 s, Pipeline 3 ≈ 6 min, casi todo esperando a que ECS quede estable).
+  - Rollback manual: **5 min 39 s**.
+- Capturas (en [`docs/evidencia/`](docs/evidencia/)):
+  - `01-app-escritorio.png` — la app en el navegador de escritorio
+  - `02-app-movil.png` — la app en el celular
+  - `03-pipeline-1.png` — Pipeline 1 (Terraform)
+  - `04-pipeline-2.png` — Pipeline 2 (build y ECR)
+  - `05-pipeline-3.png` — Pipeline 3 (deploy y smoke test)
+  - `06-aprobacion.png` — aprobación manual del environment `infraestructura`
