@@ -1,0 +1,95 @@
+# PIPELINE 2 - Construcción y publicación en Amazon ECR
+#
+#  1. Prueba el backend (pytest) y compila el frontend (Vite).
+#  2. Construye las dos imágenes Docker.
+#  3. Las etiqueta con el SHA del commit (+ "latest") y las sube a ECR.
+# Al terminar con éxito dispara automáticamente el Pipeline 3.
+name: "2 - Build y publicación en ECR"
+
+on:
+  push:
+    branches: [main]
+    paths: ["aplicacion/**", ".github/workflows/2-build-ecr.yml"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test-backend:
+    name: Pruebas backend (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aplicacion/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: aplicacion/backend/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -v
+
+  build-frontend:
+    name: Compilar frontend (Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aplicacion/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: aplicacion/frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+  publicar:
+    name: Imagen ${{ matrix.servicio }} -> ECR
+    needs: [test-backend, build-frontend]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        servicio: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Credenciales AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login en ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Construir, etiquetar y publicar
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPO: ${{ vars.PROJECT_NAME }}-${{ matrix.servicio }}
+          TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg APP_VERSION="$TAG" \
+            --label org.opencontainers.image.revision="$TAG" \
+            -t "$REGISTRY/$REPO:$TAG" \
+            -t "$REGISTRY/$REPO:latest" \
+            "aplicacion/${{ matrix.servicio }}"
+          docker push --all-tags "$REGISTRY/$REPO"
+
+          echo "### ${{ matrix.servicio }}: \`$REGISTRY/$REPO:$TAG\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verificar que la imagen quedó en ECR
+        run: |
+          aws ecr describe-images \
+            --repository-name "${{ vars.PROJECT_NAME }}-${{ matrix.servicio }}" \
+            --image-ids imageTag="${{ github.sha }}" \
+            --query 'imageDetails[0].{tags:imageTags,subida:imagePushedAt,tamanoBytes:imageSizeInBytes}' \
+            --output table

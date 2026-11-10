@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Triple Pipeline · Tareas</title>
+  </head>
+  <body>
+    <main class="contenedor">
+      <header>
+        <h1>Tablero de tareas</h1>
+        <p class="sub">Frontend (nginx) → ALB → API FastAPI en Amazon ECS Fargate</p>
+        <div id="estado" class="estado cargando">Conectando con el backend…</div>
+      </header>
+
+      <form id="form-tarea" autocomplete="off">
+        <input id="titulo" name="titulo" maxlength="120" placeholder="Nueva tarea…" required />
+        <button type="submit">Agregar</button>
+      </form>
+
+      <ul id="lista" class="lista"></ul>
+
+      <footer>
+        <span id="version-frontend"></span>
+        <a href="/api/docs" target="_blank" rel="noopener">Documentación de la API</a>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

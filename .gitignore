@@ -1,0 +1,29 @@
+# Terraform: estado, planes, variables reales y caché
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.txt
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# Secretos y archivos locales
+.env
+.env.*
+*.pem
+.aws/
+td-actual.json
+td-nueva.json
+.DS_Store

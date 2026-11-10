@@ -1,0 +1,12 @@
+# Ejemplo de variables. En el pipeline se pasan como TF_VAR_* desde las
+# variables del repositorio de GitHub; para correrlo local, copia este archivo
+# como terraform.tfvars (está en .gitignore).
+aws_region         = "us-east-1"
+project_name       = "triple-pipeline"
+environment        = "dev"
+vpc_cidr           = "10.0.0.0/16"
+backend_cpu        = 256
+backend_memory     = 512
+frontend_cpu       = 256
+frontend_memory    = 512
+log_retention_days = 7

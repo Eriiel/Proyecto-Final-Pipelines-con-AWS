@@ -1,0 +1,514 @@
+=====================================================================
+  PROYECTO FINAL - TRES PIPELINES DEVOPS EN AWS
+  Guía paso a paso para probarlo y solución de errores
+=====================================================================
+
+CONTENIDO
+  PARTE A. Probar la aplicación en tu PC (sin AWS, gratis)
+  PARTE B. Desplegar todo en AWS con los tres pipelines
+  PARTE C. Errores comunes y cómo corregirlos
+  PARTE D. Apagar todo para no gastar
+
+Nota: los comandos sirven en Windows (PowerShell), Mac y Linux, salvo
+donde se indica otra cosa.
+
+
+=====================================================================
+ PARTE A. PROBAR LA APLICACIÓN EN TU PC (SIN AWS)
+=====================================================================
+
+Opción 1 - Con Docker (recomendada)
+-----------------------------------
+Requisito: Docker Desktop instalado y ABIERTO
+(https://www.docker.com/products/docker-desktop/).
+
+ 1. Descomprime el zip y abre una terminal dentro de la carpeta
+    "proyecto-final-devops".
+
+ 2. Entra a la carpeta de la aplicación y levanta todo:
+
+        cd aplicacion
+        docker compose up --build
+
+    La primera vez tarda unos minutos porque descarga imágenes.
+
+ 3. Abre en el navegador:  http://localhost:8080
+    - Debe salir "Tablero de tareas" con una barra VERDE que dice
+      "Backend en línea".
+    - Documentación de la API: http://localhost:8080/api/docs
+
+ 4. Para detenerlo: Ctrl + C en la terminal, y luego:
+
+        docker compose down
+
+
+Opción 2 - Sin Docker (Python + Node)
+-------------------------------------
+Requisitos: Python 3.12 (o 3.11+) y Node.js 22 (o 20.19+).
+
+ Terminal 1 - Backend:
+
+        cd aplicacion/backend
+        python -m venv .venv
+        # Windows:        .venv\Scripts\activate
+        # Mac / Linux:    source .venv/bin/activate
+        pip install -r requirements-dev.txt
+        python -m pytest -v                       # deben pasar 4 pruebas
+        python -m uvicorn app.main:app --reload --port 8000
+
+ Terminal 2 - Frontend:
+
+        cd aplicacion/frontend
+        npm install
+        npm run dev
+
+ Abre: http://localhost:5173   (Vite redirige /api al backend en el 8000)
+
+
+=====================================================================
+ PARTE B. DESPLEGAR TODO EN AWS CON LOS TRES PIPELINES
+=====================================================================
+
+IMPORTANTE SI SON UN EQUIPO: usen UNA sola cuenta de AWS y UN solo
+repositorio de GitHub. El paso B3 (bootstrap) lo hace UNA sola persona.
+Los demás se agregan como colaboradores del repo
+(Settings > Collaborators).
+
+Requisitos
+----------
+ - Cuenta de AWS con un usuario IAM administrador (solo para el paso B3).
+ - Cuenta de GitHub.
+ - Git:          https://git-scm.com/downloads
+ - Terraform:    https://developer.hashicorp.com/terraform/install  (1.10 o más nuevo)
+ - AWS CLI v2:   https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+
+ Verifica que todo está instalado:
+
+        git --version
+        terraform -version
+        aws --version
+
+
+B1. Crear el usuario de AWS para tu PC (si no tienes uno)
+---------------------------------------------------------
+ 1. Consola de AWS > IAM > Users > Create user (ej. "admin-local").
+ 2. Permissions: "Attach policies directly" > AdministratorAccess.
+ 3. Abre el usuario > Security credentials > Create access key >
+    "Command Line Interface (CLI)". Copia la Access Key y la Secret Key.
+    NUNCA las pongas en el código ni las subas a GitHub.
+ 4. En la terminal:
+
+        aws configure
+          AWS Access Key ID:      (pega la tuya)
+          AWS Secret Access Key:  (pega la tuya)
+          Default region name:    us-east-1
+          Default output format:  json
+
+ 5. Comprueba que funciona (debe mostrar tu número de cuenta):
+
+        aws sts get-caller-identity
+
+
+B2. Subir el código a GitHub
+----------------------------
+ 1. En GitHub crea un repositorio NUEVO y VACÍO (sin README), por
+    ejemplo "proyecto-final-devops". Recomendado: público (ver nota
+    en B4).
+ 2. En la terminal, dentro de la carpeta "proyecto-final-devops":
+
+        git init
+        git add .
+        git commit -m "Proyecto final: tres pipelines"
+        git branch -M main
+        git remote add origin https://github.com/TU_USUARIO/TU_REPO.git
+        git push -u origin main
+
+    Los pipelines van a fallar en este primer push porque todavía no
+    están configurados. Es NORMAL; ignóralo.
+
+
+B3. Bootstrap en AWS (UNA sola vez, UNA sola persona)
+-----------------------------------------------------
+ Crea el bucket para el estado de Terraform y el rol que usará GitHub.
+
+        cd terraform/bootstrap
+        # Windows:      copy terraform.tfvars.example terraform.tfvars
+        # Mac / Linux:  cp terraform.tfvars.example terraform.tfvars
+
+ Abre terraform.tfvars y cambia github_repo por el tuyo EXACTO
+ (respeta mayúsculas y minúsculas):
+
+        github_repo = "TU_USUARIO/TU_REPO"
+
+ Luego:
+
+        terraform init
+        terraform apply          # escribe "yes" cuando lo pida
+
+ Al final verás dos valores. CÓPIALOS:
+
+        github_actions_role_arn = "arn:aws:iam::123456789012:role/triple-pipeline-github-actions"
+        tf_state_bucket         = "triple-pipeline-tfstate-123456789012"
+
+ GUARDA la carpeta terraform/bootstrap con su archivo terraform.tfstate
+ (hace falta para borrar todo al final). No se sube a GitHub.
+
+
+B4. Configurar el repositorio en GitHub
+---------------------------------------
+ a) Variables: Settings > Secrets and variables > Actions >
+    pestaña "Variables" (NO "Secrets") > New repository variable.
+    Crea estas 4:
+
+        AWS_REGION        us-east-1
+        PROJECT_NAME      triple-pipeline
+        AWS_ROLE_ARN      (el github_actions_role_arn del paso B3)
+        TF_STATE_BUCKET   (el tf_state_bucket del paso B3)
+
+ b) Environments: Settings > Environments > New environment.
+    - "infraestructura": activa "Required reviewers" y agrégate.
+      Así Terraform no crea ni borra nada sin tu aprobación.
+    - "produccion": créalo sin reglas.
+
+    Nota: en repos PRIVADOS, "Required reviewers" requiere GitHub Pro
+    (gratis con el GitHub Student Developer Pack:
+    https://education.github.com/pack). En repos públicos es gratis.
+
+
+B5. Ejecutar los pipelines (en este orden)
+------------------------------------------
+ 1. PIPELINE 1 - Infraestructura
+    GitHub > Actions > "1 - Infraestructura (Terraform)" > Run workflow
+    > acción: apply > Run.
+    - Espera a que termine el job "Validar y planificar".
+    - El job "Aplicar" queda en "Waiting": entra, pulsa
+      "Review deployments" > marca "infraestructura" > Approve.
+    - Tarda unos 3 a 6 minutos. En el resumen verás la URL (app_url).
+
+ 2. PIPELINE 2 - Build y publicación en ECR
+    Actions > "2 - Build y publicación en ECR" > Run workflow.
+    (Después de esta primera vez se ejecuta solo con cada push que
+    toque la carpeta aplicacion/.)
+
+ 3. PIPELINE 3 - Despliegue en ECS
+    Arranca SOLO cuando el pipeline 2 termina bien. Tarda unos 3 a
+    5 minutos. En el resumen aparece la URL de la aplicación.
+
+ 4. Abre la URL (http://triple-pipeline-alb-XXXX.us-east-1.elb.amazonaws.com).
+    La barra verde muestra la versión (SHA del commit) que está corriendo.
+
+
+B6. Probar un cambio (lo que se muestra en la demo)
+---------------------------------------------------
+ 1. Edita aplicacion/frontend/index.html, por ejemplo el texto
+    "Tablero de tareas".
+    OJO: si cambias ese texto, cámbialo también en
+    pipelines/scripts/smoke-test.sh (busca "Tablero de tareas"),
+    porque el smoke test lo verifica.
+    Para la demo es más seguro cambiar el texto de la línea "sub" (el
+    subtítulo).
+ 2. git add . ; git commit -m "Cambio para la demo" ; git push
+ 3. Mira cómo se ejecutan solos el pipeline 2 y luego el 3.
+ 4. Recarga la página: el cambio aparece y la versión (SHA) es nueva.
+
+
+B7. Editar los pipelines
+------------------------
+ GitHub SOLO ejecuta los archivos de .github/workflows/. La carpeta
+ pipelines/ es la copia que pide la entrega. Si cambias un .yml en
+ pipelines/, cópialo a .github/workflows/:
+   - Mac / Linux / Git Bash:   bash pipelines/sincronizar-workflows.sh
+   - Windows sin Git Bash:     copia los 3 .yml a mano.
+
+
+=====================================================================
+ PARTE C. ERRORES COMUNES Y CÓMO CORREGIRLOS
+=====================================================================
+Busca (Ctrl + F) una parte del mensaje de error.
+
+---------------------------------------------------------------------
+C1. EN TU PC (PARTE A)
+---------------------------------------------------------------------
+
+ERROR: "Cannot connect to the Docker daemon" / "error during connect"
+       / "The system cannot find the file specified" (Windows)
+CAUSA: Docker Desktop no está abierto.
+SOLUCIÓN: Abre Docker Desktop, espera a que diga "Engine running" y
+          repite el comando.
+
+ERROR: "Bind for 0.0.0.0:8080 failed: port is already allocated"
+CAUSA: Otro programa usa el puerto 8080.
+SOLUCIÓN: En aplicacion/docker-compose.yml cambia "8080:80" por
+          "8081:80" y abre http://localhost:8081
+
+ERROR: La página carga pero la barra sale ROJA: "No se pudo conectar
+       con el backend"
+SOLUCIÓN: Mira el log del backend:
+              docker compose logs backend
+          Si cambiaste código Python, revisa el error que aparece ahí.
+
+ERROR: "'python' is not recognized" / "python: command not found"
+SOLUCIÓN: En Windows prueba con "py" en lugar de "python". En Mac/Linux
+          usa "python3". Si no está instalado: https://www.python.org
+          (en Windows marca "Add Python to PATH" al instalar).
+
+ERROR: ".venv\Scripts\activate cannot be loaded because running
+       scripts is disabled on this system" (PowerShell)
+SOLUCIÓN: Ejecuta una vez:
+              Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+          y vuelve a activar el entorno.
+
+ERROR: "ModuleNotFoundError: No module named 'app'" (al correr pytest)
+SOLUCIÓN: Ejecuta las pruebas DESDE aplicacion/backend y con
+          "python -m pytest" (no solo "pytest").
+
+ERROR: "ModuleNotFoundError: No module named 'fastapi'" o "uvicorn"
+SOLUCIÓN: Activa el entorno virtual (.venv) y ejecuta
+          pip install -r requirements-dev.txt
+
+ERROR: "Vite requires Node.js version 20.19+ or 22.12+"
+SOLUCIÓN: Actualiza Node.js a la versión 22 LTS: https://nodejs.org
+
+ERROR: "npm: command not found" / "'npm' is not recognized"
+SOLUCIÓN: Instala Node.js (incluye npm) y abre una terminal nueva.
+
+---------------------------------------------------------------------
+C2. AWS CLI Y BOOTSTRAP (PASOS B1 Y B3)
+---------------------------------------------------------------------
+
+ERROR: "Unable to locate credentials" / "No valid credential sources
+       found"
+SOLUCIÓN: Ejecuta "aws configure" (paso B1) y comprueba con
+          "aws sts get-caller-identity".
+
+ERROR: "'terraform' is not recognized" / "command not found"
+SOLUCIÓN: Instala Terraform y agrega la carpeta del terraform.exe al
+          PATH (Windows), o instálalo con "winget install
+          Hashicorp.Terraform" o "brew install terraform". Abre una
+          terminal nueva.
+
+ERROR: "EntityAlreadyExists: Provider with url
+       https://token.actions.githubusercontent.com already exists"
+CAUSA: Esa cuenta de AWS ya tiene el proveedor OIDC de GitHub (alguien
+       ya hizo el bootstrap o lo creó antes).
+SOLUCIÓN: Si otro compañero ya hizo el bootstrap en esa cuenta, NO lo
+          repitas: pídele los dos valores del paso B3. Si el proveedor
+          existía por otro motivo, impórtalo y vuelve a aplicar:
+              terraform import aws_iam_openid_connect_provider.github arn:aws:iam::TU_ID_DE_CUENTA:oidc-provider/token.actions.githubusercontent.com
+              terraform apply
+
+ERROR: "BucketAlreadyOwnedByYou" o "EntityAlreadyExists: Role with
+       name triple-pipeline-github-actions already exists"
+CAUSA: El bootstrap ya se ejecutó antes en esa cuenta, pero se perdió
+       el terraform.tfstate local.
+SOLUCIÓN: Si ya tienes los valores (ARN del rol y nombre del bucket),
+          úsalos y sigue al paso B4. Si no, cambia project_name en
+          terraform.tfvars por otro nombre (y usa ese mismo nombre en
+          la variable PROJECT_NAME de GitHub).
+
+---------------------------------------------------------------------
+C3. PIPELINE 1 - INFRAESTRUCTURA
+---------------------------------------------------------------------
+
+ERROR: "Could not assume role with OIDC: Not authorized to perform
+       sts:AssumeRoleWithWebIdentity"
+CAUSA: El repositorio no coincide con el que se puso en el bootstrap.
+SOLUCIÓN: - En terraform/bootstrap/terraform.tfvars, github_repo debe
+            ser EXACTAMENTE "usuario/repo" (mayúsculas incluidas).
+          - Si lo cambias, vuelve a ejecutar "terraform apply" en
+            terraform/bootstrap.
+          - Si renombraste o hiciste fork del repo, también hay que
+            actualizarlo.
+
+ERROR: "Credentials could not be loaded" / "Input required and not
+       supplied: aws-region" / role-to-assume vacío
+CAUSA: Faltan las variables o se crearon como "Secrets" en vez de
+       "Variables".
+SOLUCIÓN: Revisa el paso B4 a). Deben estar en la pestaña "Variables"
+          con los nombres EXACTOS: AWS_REGION, PROJECT_NAME,
+          AWS_ROLE_ARN, TF_STATE_BUCKET.
+
+ERROR: Falla el paso "terraform fmt"
+CAUSA: Algún .tf no tiene el formato estándar (pasa si se editó a mano).
+SOLUCIÓN: En tu PC:
+              cd terraform
+              terraform fmt -recursive
+              git add . ; git commit -m "terraform fmt" ; git push
+
+ERROR: "Failed to get existing workspaces: S3 bucket does not exist"
+       / "AccessDenied" en terraform init
+SOLUCIÓN: TF_STATE_BUCKET o AWS_REGION están mal escritos. Compáralos
+          con la salida del bootstrap (en la terminal:
+          cd terraform/bootstrap ; terraform output).
+
+ERROR: "Error acquiring the state lock"
+CAUSA: Una ejecución anterior se canceló a la mitad y dejó el candado.
+SOLUCIÓN: Espera a que no haya otra ejecución corriendo. Luego, en la
+          consola de AWS > S3 > tu bucket tfstate > carpeta
+          triple-pipeline/ > borra el archivo terminado en ".tflock".
+          Vuelve a ejecutar el pipeline.
+
+ERROR: El job "Aplicar" se queda en "Waiting" y no avanza
+CAUSA: Está esperando tu aprobación (environment "infraestructura").
+SOLUCIÓN: Entra a la ejecución > "Review deployments" > Approve.
+
+ERROR: "Saved plan is stale"
+CAUSA: La infraestructura cambió entre el plan y el apply.
+SOLUCIÓN: Ejecuta de nuevo el pipeline 1 completo (Run workflow > apply).
+
+ERROR: "AccessDenied ... iam:CreateServiceLinkedRole" o
+       "Unable to assume the service linked role"
+CAUSA: La cuenta es nueva y nunca ha usado ECS ni balanceadores.
+SOLUCIÓN: En tu PC (con el usuario administrador):
+              aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com
+              aws iam create-service-linked-role --aws-service-name elasticloadbalancing.amazonaws.com
+          (Si responde "has been taken", ya existía: está bien.)
+          Vuelve a ejecutar el pipeline 1.
+
+ERROR: "This AWS account currently does not support creating load
+       balancers"
+CAUSA: Algunas cuentas muy nuevas tienen el ALB restringido hasta
+       verificarse.
+SOLUCIÓN: Abre un caso en AWS Support (Account and billing, es gratis)
+          pidiendo habilitar Elastic Load Balancing. Suele responderse
+          en horas. Hazlo con tiempo antes de la demo.
+
+---------------------------------------------------------------------
+C4. PIPELINE 2 - BUILD Y PUBLICACIÓN EN ECR
+---------------------------------------------------------------------
+
+ERROR: Falla "Pruebas backend (Python)"
+CAUSA: Un cambio en el código rompió alguna prueba.
+SOLUCIÓN: Abre el log, mira qué prueba falló (sale "FAILED") y
+          corrígela. Pruébalo antes en tu PC (Parte A, opción 2):
+          python -m pytest -v
+
+ERROR: Falla "Compilar frontend (Vite)"
+SOLUCIÓN: Corre "npm install" y "npm run build" en aplicacion/frontend
+          en tu PC para ver el error (normalmente es un error de
+          sintaxis en src/main.js).
+
+ERROR: "name unknown: The repository with name 'triple-pipeline-backend'
+       does not exist in the registry"
+CAUSA: No se ha ejecutado el pipeline 1 (no existe ECR) o PROJECT_NAME
+       no coincide.
+SOLUCIÓN: Ejecuta primero el pipeline 1 con "apply". Verifica que
+          PROJECT_NAME sea igual al del bootstrap.
+
+ERROR: "denied: Your authorization token has expired" /
+       "no basic auth credentials"
+SOLUCIÓN: Vuelve a ejecutar el job (Re-run failed jobs). El login en
+          ECR se renueva en cada ejecución.
+
+---------------------------------------------------------------------
+C5. PIPELINE 3 - DESPLIEGUE EN ECS
+---------------------------------------------------------------------
+
+ERROR: El pipeline 3 NO se dispara solo después del pipeline 2
+CAUSA: GitHub solo dispara "workflow_run" si el archivo está en la rama
+       main y el nombre coincide exactamente.
+SOLUCIÓN: - Verifica que .github/workflows/3-deploy-ecs.yml está en main.
+          - Mientras tanto, ejecútalo a mano: Actions > "3 - Despliegue
+            en ECS" > Run workflow > pega el SHA COMPLETO del commit
+            (40 caracteres; lo ves en la pestaña Commits de GitHub o con
+            "git rev-parse HEAD").
+
+ERROR: "No existe triple-pipeline-backend:XXXX en ECR"
+CAUSA: El pipeline 2 de ese commit no terminó bien, o el SHA manual
+       está incompleto.
+SOLUCIÓN: Asegúrate de que el pipeline 2 está en verde. Si lo lanzas a
+          mano, usa el SHA completo (no el corto de 7 caracteres).
+
+ERROR: "Waiter ServicesStable failed: Max attempts exceeded" o
+       "ECS revirtió el despliegue (circuit breaker)"
+CAUSA: Las tareas nuevas no arrancan o no pasan el health check.
+       (El pipeline ya volvió a la versión anterior automáticamente.)
+SOLUCIÓN: Mira la causa real:
+          1. Consola AWS > ECS > Clusters > triple-pipeline-cluster >
+             servicio (backend o frontend) > pestaña "Events" y
+             pestaña "Tasks" > tarea detenida > "Stopped reason".
+          2. Logs del contenedor: CloudWatch > Log groups >
+             /ecs/triple-pipeline/backend (o frontend).
+          Causas típicas:
+          - "CannotPullContainerError": la tarea no puede descargar la
+            imagen. Verifica que la imagen existe en ECR y que el
+            pipeline 1 se aplicó completo (subredes con salida a
+            Internet).
+          - "Essential container in task exited": el código falla al
+            arrancar; el error está en CloudWatch Logs.
+          - "failed ELB health checks": el backend no responde en
+            /api/health o el frontend no responde en "/".
+
+ERROR: El smoke test dice "backend responde 'XXXX', esperando..." y al
+       final falla
+CAUSA: El ALB todavía manda tráfico a la tarea vieja (tarda en
+       drenarla) o la nueva no arrancó.
+SOLUCIÓN: Vuelve a ejecutar el job (Re-run failed jobs). Si sigue
+          fallando, revisa C5 "ServicesStable" arriba.
+
+ERROR: "El frontend respondió HTTP ... o sin el contenido esperado"
+CAUSA: Cambiaste el texto "Tablero de tareas" en index.html.
+SOLUCIÓN: Cambia también ese texto en pipelines/scripts/smoke-test.sh
+          (y en .github/workflows no hace falta, el script se lee de
+          pipelines/scripts/).
+
+ERROR: "$'\r': command not found" o "bash\r: No such file or directory"
+CAUSA: El .sh se guardó con saltos de línea de Windows (CRLF).
+SOLUCIÓN: El archivo .gitattributes del repo lo evita. Si aun así pasa:
+              git add --renormalize .
+              git commit -m "Corregir saltos de línea" ; git push
+          En VS Code también puedes cambiar "CRLF" a "LF" en la barra
+          inferior derecha y guardar.
+
+---------------------------------------------------------------------
+C6. AL ABRIR LA URL DE LA APLICACIÓN
+---------------------------------------------------------------------
+
+ERROR: "503 Service Temporarily Unavailable"
+CAUSA: El ALB no tiene contenedores sanos detrás. Es lo normal después
+       del pipeline 1 y ANTES del pipeline 3 (los servicios se crean
+       con 0 tareas).
+SOLUCIÓN: Ejecuta los pipelines 2 y 3. Si ya los ejecutaste, revisa
+          C5 "ServicesStable".
+
+ERROR: "502 Bad Gateway"
+CAUSA: El contenedor se cayó o se está reiniciando.
+SOLUCIÓN: Revisa los logs en CloudWatch (C5).
+
+ERROR: La página carga pero la barra sale ROJA (backend no conecta)
+SOLUCIÓN: El frontend está bien pero el backend no. Abre
+          http://TU_URL/api/health ; si da 503, el servicio backend no
+          tiene tareas sanas: revisa C5.
+
+ERROR: La página no abre / se queda cargando
+SOLUCIÓN: Usa http:// (NO https://). El proyecto expone solo HTTP en
+          el puerto 80.
+
+ERROR: Las tareas que creé desaparecieron
+CAUSA: Es esperado: el backend guarda en memoria y cada despliegue
+       crea un contenedor nuevo. (Mejora posible: usar DynamoDB.)
+
+
+=====================================================================
+ PARTE D. APAGAR TODO PARA NO GASTAR
+=====================================================================
+Con todo encendido el costo es del orden de 1 USD al día. Al terminar
+la demo:
+
+ 1. GitHub > Actions > "1 - Infraestructura (Terraform)" > Run
+    workflow > acción: destroy > aprobar en "Review deployments".
+    Si falla con "DependencyViolation", ejecútalo otra vez (a veces
+    AWS tarda en liberar las interfaces de red).
+
+ 2. (Opcional, para dejar la cuenta limpia) Borrar el bootstrap:
+    a) Consola AWS > S3 > bucket "triple-pipeline-tfstate-..." >
+       botón "Empty" > confirma (borra también versiones antiguas).
+    b) En tu PC:
+           cd terraform/bootstrap
+           terraform destroy
+
+ 3. Revisa en AWS > Billing > Bills que no quede nada cobrándose.
+    Recomendado: crea una alerta de presupuesto en AWS > Budgets
+    (por ejemplo, 5 USD).
+
+=====================================================================

@@ -1,0 +1,4 @@
+# Los scripts de bash deben tener saltos de línea Unix (LF), aunque se editen en Windows.
+*.sh  text eol=lf
+*.yml text eol=lf
+*.tf  text eol=lf

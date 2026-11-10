@@ -1,0 +1,4 @@
+# Copia este archivo como terraform.tfvars (NO lo subas al repo) y ajusta los valores.
+aws_region   = "us-east-1"
+project_name = "triple-pipeline"
+github_repo  = "tu-usuario/proyecto-final-devops"
